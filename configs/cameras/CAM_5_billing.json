@@ -1,0 +1,8 @@
+{
+  "store_id": "ST1008",
+  "camera_id": "CAM_5",
+  "camera_role": "billing",
+  "zones_visible": ["ZONE_BILLING", "ZONE_BILLING_QUEUE", "ZONE_PMU"],
+  "queue_zone": "ZONE_BILLING_QUEUE",
+  "exclude_from_customer_metrics": false
+}

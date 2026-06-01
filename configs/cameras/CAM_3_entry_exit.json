@@ -1,0 +1,11 @@
+{
+  "store_id": "ST1008",
+  "camera_id": "CAM_3",
+  "camera_role": "entry_exit",
+  "zones_visible": ["ZONE_ENTRY_EXIT", "ZONE_FOH"],
+  "entry_logic": "outside_corridor_to_inside_entry_zone",
+  "outside_corridor_polygon": [],
+  "inside_entry_polygon": [],
+  "entry_threshold_line": [],
+  "notes": "Calibrate polygons using a representative frame before final detection run."
+}

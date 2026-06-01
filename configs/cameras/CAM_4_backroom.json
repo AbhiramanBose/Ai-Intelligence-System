@@ -1,0 +1,7 @@
+{
+  "store_id": "ST1008",
+  "camera_id": "CAM_4",
+  "camera_role": "excluded_backroom",
+  "zones_visible": ["ZONE_BACKROOM"],
+  "exclude_from_customer_metrics": true
+}

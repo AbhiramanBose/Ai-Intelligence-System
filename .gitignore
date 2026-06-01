@@ -1,0 +1,48 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local database/storage
+storage/*.db
+*.sqlite
+*.sqlite3
+
+# Model/cache outputs
+yolov8n.pt
+runs/
+.ultralytics/
+
+# Raw challenge dataset and videos
+data/raw/cctv/
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# Local OS/editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Raw POS challenge dataset
+data/raw/pos/
+
+# Generated outputs from challenge data
+data/processed/generated_events.jsonl
+data/processed/detection_summary.json
+data/processed/normalized_pos_transactions.csv
+
+# Entire raw challenge dataset
+data/raw/
+
+# Generated outputs from challenge data
+data/processed/generated_events.jsonl
+data/processed/detection_summary.json
+data/processed/normalized_pos_transactions.csv

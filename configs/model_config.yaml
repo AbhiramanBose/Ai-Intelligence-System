@@ -1,0 +1,6 @@
+model: yolov8n.pt
+person_class_id: 0
+confidence_threshold: 0.20
+process_fps: 5
+dwell_threshold_seconds: 30
+demo_dwell_threshold_seconds: 10

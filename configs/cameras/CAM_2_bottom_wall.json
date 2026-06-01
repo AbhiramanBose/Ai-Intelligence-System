@@ -1,0 +1,7 @@
+{
+  "store_id": "ST1008",
+  "camera_id": "CAM_2",
+  "camera_role": "bottom_wall_product_zones",
+  "zones_visible": ["ZONE_BOTTOM_WALL_MAKEUP", "ZONE_CENTER_MAKEUP_UNIT", "ZONE_FOH"],
+  "exclude_from_customer_metrics": false
+}

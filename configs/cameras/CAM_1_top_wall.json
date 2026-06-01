@@ -1,0 +1,7 @@
+{
+  "store_id": "ST1008",
+  "camera_id": "CAM_1",
+  "camera_role": "top_wall_product_zones",
+  "zones_visible": ["ZONE_TOP_WALL_SKINCARE", "ZONE_CENTER_MAKEUP_UNIT", "ZONE_FOH"],
+  "exclude_from_customer_metrics": false
+}

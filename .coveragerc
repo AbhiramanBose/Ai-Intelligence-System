@@ -1,0 +1,19 @@
+[run]
+omit =
+    */__init__.py
+    pipeline/run_pipeline.py
+    pipeline/detect.py
+    pipeline/tracker.py
+    pipeline/reid.py
+    pipeline/staff_classifier.py
+    pipeline/queue_detector.py
+    pipeline/video_utils.py
+    pipeline/camera_config_loader.py
+    pipeline/event_builder.py
+    pipeline/event_writer.py
+    app/models/anomaly.py
+    app/models/store_zone.py
+
+[report]
+show_missing = True
+skip_covered = False
