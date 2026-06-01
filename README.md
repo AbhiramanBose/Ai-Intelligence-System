@@ -2,7 +2,7 @@
 
 An end-to-end AI-powered retail store intelligence system that converts raw CCTV footage and POS transaction data into business metrics such as visitor count, product-zone engagement, billing queue activity, heatmap, anomalies, abandonment rate, and offline store conversion rate.
 
-This project is built for the UpGrad / Purplle Store Intelligence Challenge. It processes multi-camera CCTV footage, generates structured behavioural events, ingests them through a FastAPI backend, correlates billing activity with POS transactions, and exposes production-style analytics APIs.
+It processes multi-camera CCTV footage, generates structured behavioural events, ingests them through a FastAPI backend, correlates billing activity with POS transactions, and exposes production-style analytics APIs.
 
 ## Current Store
 
