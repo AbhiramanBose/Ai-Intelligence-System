@@ -9,6 +9,7 @@ from app.services.metrics_service import MetricsService
 from app.services.funnel_service import FunnelService
 from app.services.heatmap_service import HeatmapService
 from app.services.anomaly_service import AnomalyService
+from app.services.pos_correlation_service import PosCorrelationService
 
 router = APIRouter(prefix="/stores", tags=["stores"])
 
@@ -31,3 +32,13 @@ def get_heatmap(store_id: str, db: Session = Depends(get_db)):
 @router.get("/{store_id}/anomalies", response_model=AnomalyResponse)
 def get_anomalies(store_id: str, db: Session = Depends(get_db)):
     return AnomalyService(db).get_anomalies(store_id)
+
+@router.get("/{store_id}/conversion-debug")
+def get_conversion_debug(store_id: str, db: Session = Depends(get_db)):
+    """
+    Explain how POS-confirmed conversion and abandonment were computed.
+
+    This endpoint is intentionally diagnostic. It helps reviewers and operators
+    understand why conversion_rate may be 0.0 even when visitors reached billing.
+    """
+    return PosCorrelationService(db).get_summary(store_id)

@@ -117,10 +117,11 @@ class PosCorrelationService:
             conversion_source = "pos_correlation"
             abandonment_source = "unmatched_billing_visitors"
         else:
-            fallback_converted = billing_visitors - explicit_abandoned_visitors
-            converted_count = min(len(fallback_converted), billing_count)
+            # Conversion is intentionally POS-confirmed only.
+            # A billing queue visit without a POS transaction is not treated as a purchase.
+            converted_count = 0
             abandoned_count = min(len(explicit_abandoned_visitors), billing_count)
-            conversion_source = "billing_fallback_no_pos_loaded"
+            conversion_source = "no_pos_transactions_loaded"
             abandonment_source = "explicit_abandon_events"
 
         return {

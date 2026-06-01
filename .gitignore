@@ -46,3 +46,6 @@ data/raw/
 data/processed/generated_events.jsonl
 data/processed/detection_summary.json
 data/processed/normalized_pos_transactions.csv
+
+# POS-enriched generated event output
+data/processed/generated_events_with_pos.jsonl

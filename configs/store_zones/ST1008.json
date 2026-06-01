@@ -1,0 +1,35 @@
+{
+  "store_id": "ST1008",
+  "description": "Store-specific camera and zone assumptions used by the CCTV pipeline.",
+  "camera_roles": {
+    "CAM_1": "main_floor_top_wall",
+    "CAM_2": "main_floor_bottom_wall",
+    "CAM_3": "entry_exit",
+    "CAM_4": "backroom_staff",
+    "CAM_5": "billing_queue"
+  },
+  "staff_cameras": [
+    "CAM_4"
+  ],
+  "product_zones": [
+    "ZONE_TOP_WALL_SKINCARE",
+    "ZONE_BOTTOM_WALL_MAKEUP",
+    "ZONE_CENTER_MAKEUP_UNIT"
+  ],
+  "non_product_zones": [
+    "ZONE_FOH",
+    "ZONE_BILLING",
+    "ZONE_BILLING_QUEUE",
+    "ZONE_BACKROOM",
+    "ZONE_PMU",
+    "ZONE_OUTSIDE_CORRIDOR",
+    "ZONE_ENTRY_EXIT"
+  ],
+  "billing_zone": "ZONE_BILLING_QUEUE",
+  "entry_camera": "CAM_3",
+  "notes": [
+    "CAM_4 is treated as staff/backroom footage and excluded from customer-facing metrics.",
+    "Product-zone analytics are based on named zones from the camera layout.",
+    "Cross-camera person re-identification is documented as a production improvement."
+  ]
+}
