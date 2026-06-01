@@ -1,8 +1,8 @@
 # Store Intelligence System
 
-An end-to-end retail store intelligence system that converts CCTV footage and POS data into business metrics such as visitor count, product-zone engagement, billing queue activity, heatmap, anomalies, and offline store conversion rate.
+An end-to-end AI-powered retail store intelligence system that converts raw CCTV footage and POS transaction data into business metrics such as visitor count, product-zone engagement, billing queue activity, heatmap, anomalies, abandonment rate, and offline store conversion rate.
 
-The project is built for the UpGrad Store Intelligence Challenge. It processes multi-camera CCTV footage from the Brigade Bangalore store, generates structured events, ingests them through a FastAPI backend, and exposes analytics endpoints.
+This project is built for the UpGrad / Purplle Store Intelligence Challenge. It processes multi-camera CCTV footage, generates structured behavioural events, ingests them through a FastAPI backend, correlates billing activity with POS transactions, and exposes production-style analytics APIs.
 
 ## Current Store
 
@@ -16,7 +16,7 @@ Date: 10 April 2026
 ## High-Level Flow
 
 ```text
-CCTV footage
+Raw CCTV footage
     ↓
 YOLOv8 person detection
     ↓
@@ -26,39 +26,56 @@ Camera-specific zone mapping
     ↓
 Structured JSONL events
     ↓
+POS enrichment and abandonment post-processing
+    ↓
 FastAPI event ingestion
     ↓
 SQLite storage
     ↓
-Metrics, funnel, heatmap, anomalies, health
+Metrics, funnel, heatmap, anomalies, health, conversion debug
     ↓
-POS correlation for conversion
+Live terminal dashboard
 ```
 
 ## Camera Mapping
 
 ```text
-CAM_1: Top-wall skincare and central product-zone analytics
-CAM_2: Bottom-wall makeup and central product-zone analytics
+CAM_1: Main floor, top-wall skincare and central product-zone analytics
+CAM_2: Main floor, bottom-wall makeup and central product-zone analytics
 CAM_3: Entry / exit camera
 CAM_4: Backroom / staff-side camera, excluded from customer metrics
 CAM_5: Billing queue and POS correlation camera
 ```
 
+Store-specific camera and zone assumptions are also documented in:
+
+```text
+configs/store_zones/ST1008.json
+```
+
 ## Main Features
 
 ```text
-1. CCTV-to-event pipeline
-2. Event ingestion API
-3. Idempotent event storage using event_id
-4. Store metrics API
-5. Session-style funnel API
-6. Zone heatmap API
-7. Anomaly API
-8. Health API with stale-feed detection
-9. POS CSV normalization
-10. POS-based conversion correlation
-11. Tests with coverage above 70%
+1. CCTV-to-event detection pipeline
+2. YOLOv8 person detection
+3. ByteTrack person tracking
+4. Camera-specific zone mapping
+5. Structured event schema
+6. 30-second ZONE_DWELL rule
+7. Billing queue detection with queue depth
+8. Explicit BILLING_QUEUE_ABANDON post-processing
+9. FastAPI event ingestion
+10. Idempotent storage by event_id
+11. POS-based conversion correlation
+12. Store metrics endpoint
+13. Session-style funnel endpoint
+14. Zone heatmap endpoint
+15. Anomaly endpoint
+16. Health endpoint with stale-feed detection
+17. Conversion-debug endpoint for metric explainability
+18. Live terminal dashboard
+19. Structured request logging
+20. Tests with 86% coverage
 ```
 
 ## Tech Stack
@@ -72,6 +89,7 @@ Validation: Pydantic
 Computer Vision: YOLOv8
 Tracking: ByteTrack
 Video Processing: OpenCV
+Dashboard: Rich terminal UI
 Testing: pytest, pytest-cov
 Containerization: Docker Compose
 ```
@@ -83,6 +101,7 @@ store-intelligence-starter/
 ├── app/
 │   ├── main.py
 │   ├── database.py
+│   ├── middleware.py
 │   ├── models/
 │   ├── schemas/
 │   ├── routers/
@@ -90,17 +109,28 @@ store-intelligence-starter/
 │
 ├── pipeline/
 │   ├── run_pipeline.py
-│   ├── zone_mapper.py
-│   └── supporting pipeline modules
+│   └── zone_mapper.py
 │
 ├── scripts/
 │   ├── replay_events.py
-│   └── seed_pos_transactions.py
+│   ├── replay_events_realtime.py
+│   ├── seed_pos_transactions.py
+│   └── postprocess_abandonment_events.py
+│
+├── dashboard/
+│   └── terminal_dashboard.py
+│
+├── configs/
+│   └── store_zones/
+│       └── ST1008.json
+│
+├── docs/
+│   ├── METRIC_DEFINITIONS.md
+│   └── RUNBOOK.md
 │
 ├── data/
+│   ├── fixtures/
 │   ├── raw/
-│   │   ├── cctv/ST1008/
-│   │   └── pos/
 │   └── processed/
 │
 ├── tests/
@@ -111,6 +141,28 @@ store-intelligence-starter/
 └── Dockerfile
 ```
 
+## Important Dataset Note
+
+Raw challenge videos, raw POS files, generated event files, local database files, and downloaded model weights are intentionally excluded from Git.
+
+Do not commit:
+
+```text
+data/raw/
+*.mp4
+*.mov
+*.avi
+*.mkv
+yolov8n.pt
+storage/store_intelligence.db
+data/processed/generated_events.jsonl
+data/processed/generated_events_with_pos.jsonl
+data/processed/normalized_pos_transactions.csv
+data/processed/detection_summary.json
+```
+
+These files are ignored through `.gitignore` and `.dockerignore`.
+
 ## Setup
 
 Use Python 3.11.
@@ -120,6 +172,19 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r requirements.txt
+```
+
+Verify environment:
+
+```bash
+which python
+python --version
+```
+
+Expected:
+
+```text
+Python 3.11.x
 ```
 
 ## Required Input Files
@@ -158,6 +223,13 @@ curl http://localhost:8000/health
 docker compose up --build
 ```
 
+Then verify:
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/stores/ST1008/metrics
+```
+
 ## Generate CCTV Events
 
 ```bash
@@ -178,6 +250,12 @@ data/processed/generated_events.jsonl
 data/processed/detection_summary.json
 ```
 
+Current observed run:
+
+```text
+input CCTV events: 334
+```
+
 ## Normalize and Seed POS Transactions
 
 ```bash
@@ -190,13 +268,57 @@ This creates:
 data/processed/normalized_pos_transactions.csv
 ```
 
-The POS CSV is item-level. The script converts it into transaction-level rows and inserts them into SQLite.
+The POS CSV is normalized into transaction-level rows and inserted into SQLite.
+
+Current observed run:
+
+```text
+Normalized POS transactions: 24
+Inserted: 24
+Skipped duplicates: 0
+```
+
+## Add Billing Queue Abandonment Events
+
+After CCTV events and POS transactions are available, run:
+
+```bash
+python scripts/postprocess_abandonment_events.py \
+  --events data/processed/generated_events.jsonl \
+  --pos data/processed/normalized_pos_transactions.csv \
+  --output data/processed/generated_events_with_pos.jsonl
+```
+
+This appends explicit `BILLING_QUEUE_ABANDON` events for billing visitors who do not match a POS transaction within the five-minute conversion window.
+
+Current observed run:
+
+```text
+input_event_count: 334
+transaction_count: 24
+abandon_event_count: 12
+output_event_count: 346
+```
 
 ## Replay Events into API
 
+Replay the POS-enriched event file:
+
 ```bash
-python scripts/replay_events.py --file data/processed/generated_events.jsonl
+python scripts/replay_events.py --file data/processed/generated_events_with_pos.jsonl
 ```
+
+Expected clean replay:
+
+```json
+{
+  "accepted_count": 346,
+  "duplicate_count": 0,
+  "invalid_count": 0
+}
+```
+
+If the same file is replayed again, duplicates are expected. That confirms ingestion idempotency.
 
 ## API Endpoints
 
@@ -206,26 +328,27 @@ python scripts/replay_events.py --file data/processed/generated_events.jsonl
 curl http://localhost:8000/health
 ```
 
+Returns service status, database status, latest event timestamp per store, and stale-feed warnings.
+
 ### Metrics
 
 ```bash
 curl http://localhost:8000/stores/ST1008/metrics
 ```
 
-Returns:
+Latest observed response:
 
 ```json
 {
   "store_id": "ST1008",
-  "unique_visitors": 6,
+  "unique_visitors": 4,
   "conversion_rate": 0.0,
   "avg_dwell_per_zone": {
-    "ZONE_FOH": 33755.93,
-    "ZONE_BILLING_QUEUE": 22496.2,
-    "ZONE_CENTER_MAKEUP_UNIT": 10010.0
+    "ZONE_FOH": 62850.55,
+    "ZONE_BILLING_QUEUE": 30622.5
   },
   "current_queue_depth": 1,
-  "abandonment_rate": 0.0
+  "abandonment_rate": 1.0
 }
 ```
 
@@ -235,13 +358,34 @@ Returns:
 curl http://localhost:8000/stores/ST1008/funnel
 ```
 
-Returns a session-style funnel:
+Latest observed response:
 
-```text
-ENTRY
-PRODUCT_ZONE_VISIT
-BILLING_QUEUE
-PURCHASE
+```json
+{
+  "store_id": "ST1008",
+  "funnel": [
+    {
+      "stage": "ENTRY",
+      "count": 4,
+      "dropoff_percent": 0.0
+    },
+    {
+      "stage": "PRODUCT_ZONE_VISIT",
+      "count": 4,
+      "dropoff_percent": 0.0
+    },
+    {
+      "stage": "BILLING_QUEUE",
+      "count": 4,
+      "dropoff_percent": 0.0
+    },
+    {
+      "stage": "PURCHASE",
+      "count": 0,
+      "dropoff_percent": 100.0
+    }
+  ]
+}
 ```
 
 ### Heatmap
@@ -250,7 +394,9 @@ PURCHASE
 curl http://localhost:8000/stores/ST1008/heatmap
 ```
 
-Returns zone-level visit count, average dwell time, heat score, and data confidence.
+Returns zone-level visit count, average dwell time, normalized heat score, and data confidence.
+
+`data_confidence` is marked `LOW` when the observed session count is below 20.
 
 ### Anomalies
 
@@ -258,26 +404,89 @@ Returns zone-level visit count, average dwell time, heat score, and data confide
 curl http://localhost:8000/stores/ST1008/anomalies
 ```
 
-Detects stale feed and queue-related anomalies.
+Detects operational anomalies such as stale feed, billing queue spike, dead zones, and unavailable conversion baseline.
+
+For the challenge dataset, `STALE_FEED` is expected after replay because the CCTV-derived event timestamps are historical.
+
+### Conversion Debug
+
+```bash
+curl http://localhost:8000/stores/ST1008/conversion-debug
+```
+
+Latest observed response:
+
+```json
+{
+  "store_id": "ST1008",
+  "entry_count": 4,
+  "product_count": 4,
+  "billing_count": 4,
+  "converted_count": 0,
+  "abandoned_count": 4,
+  "transaction_count": 24,
+  "matched_transaction_count": 0,
+  "unmatched_transaction_count": 24,
+  "matched_transactions": [],
+  "conversion_source": "pos_correlation",
+  "abandonment_source": "unmatched_billing_visitors"
+}
+```
+
+This endpoint exists to make the north-star metric auditable.
 
 ## POS Correlation Rule
 
-A purchase conversion is counted only when a visitor is detected in the billing queue within five minutes before a POS transaction timestamp.
+The system uses POS-confirmed conversion:
 
-For the provided demo run, CCTV billing events occur around:
+```text
+conversion_rate = POS-confirmed converted visitors / unique customer sessions
+```
+
+A conversion is counted only when a visitor is detected in the billing queue within five minutes before a POS transaction timestamp for the same store.
+
+Billing queue presence alone is not treated as purchase.
+
+For the provided ST1008 run, billing events occur around:
 
 ```text
 2026-04-10T14:39Z to 2026-04-10T14:40Z
 ```
 
-The nearest POS transactions are approximately 15 minutes away from this CCTV billing window. Therefore, no transaction satisfies the five-minute correlation rule, and the system correctly reports:
+The nearest POS transactions are outside the five-minute conversion window. Therefore, the system correctly reports:
 
 ```text
 conversion_rate = 0.0
 PURCHASE count = 0
+abandonment_rate = 1.0
 ```
 
-This is intentional. The system avoids falsely inflating conversion.
+This is intentional. The system avoids falsely inflating offline conversion.
+
+## Live Terminal Dashboard
+
+Terminal 1, start API:
+
+```bash
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Terminal 2, start dashboard:
+
+```bash
+python dashboard/terminal_dashboard.py --store-id ST1008 --refresh-seconds 2
+```
+
+Terminal 3, replay events slowly:
+
+```bash
+python scripts/replay_events_realtime.py \
+  --file data/processed/generated_events_with_pos.jsonl \
+  --batch-size 10 \
+  --delay-seconds 1.5
+```
+
+The dashboard updates metrics, funnel, heatmap, anomalies, and health while events are being ingested.
 
 ## Run Tests
 
@@ -288,7 +497,7 @@ python -m pytest
 Expected:
 
 ```text
-13 passed
+24 passed
 ```
 
 ## Run Coverage
@@ -297,15 +506,62 @@ Expected:
 python -m pytest --cov=app --cov=pipeline --cov-config=.coveragerc
 ```
 
-Expected coverage:
+Expected:
 
 ```text
-86% or above
+86% coverage
 ```
 
-## Notes
+## Edge Cases Covered by Tests
 
-1. The CCTV pipeline uses broad analytics zones rather than overly granular brand-level zones.
-2. CAM_4 is treated as a backroom/staff-side camera and excluded from customer metrics.
-3. The current cross-camera visitor identity is approximate. CAM_3 provides entry count, while CAM_1, CAM_2, and CAM_5 provide zone and billing signals.
-4. POS-based conversion is stricter than billing fallback and is used for final metrics.
+```text
+1. Empty store / zero-traffic behavior
+2. All-staff movement excluded from customer metrics
+3. Re-entry does not double-count the funnel
+4. Zero-purchase behavior
+5. POS-confirmed conversion
+6. Billing abandonment post-processing
+7. Ingestion idempotency
+8. Event schema validation
+9. Health endpoint
+10. Zone mapping
+```
+
+## Documentation
+
+```text
+DESIGN.md
+CHOICES.md
+docs/METRIC_DEFINITIONS.md
+docs/RUNBOOK.md
+configs/store_zones/ST1008.json
+```
+
+## Known Limitations
+
+1. Full cross-camera person re-identification is not implemented in v1.
+2. Staff handling uses camera and zone assumptions rather than a trained uniform classifier.
+3. Conversion drop versus seven-day average is not emitted without historical baseline data.
+4. The challenge dataset is short, so heatmap confidence is intentionally conservative.
+5. Generated event files and raw challenge data are not committed to Git.
+
+## Final Verification Checklist
+
+Before submission:
+
+```bash
+python -m pytest
+python -m pytest --cov=app --cov=pipeline --cov-config=.coveragerc
+docker compose up --build
+curl http://localhost:8000/health
+curl http://localhost:8000/stores/ST1008/metrics
+```
+
+Before pushing to GitHub, ensure sensitive/generated files are not staged:
+
+```bash
+git diff --cached --name-only | grep -E "data/raw|\\.mp4|\\.mov|\\.avi|\\.mkv|yolov8n.pt|store_intelligence.db|generated_events|generated_events_with_pos|normalized_pos_transactions|detection_summary"
+```
+
+Expected: no output.
+
