@@ -1,0 +1,116 @@
+{
+  "store_id": "ST1076",
+  "display_name": "Store 2",
+  "layout_file": "data/raw/stores/store_2/layout.png",
+  "camera_roles": {
+    "ENTRY_1": {
+      "role": "entry",
+      "file": "data/raw/stores/store_2/entry 1.mp4",
+      "description": "Entry and exit camera angle 1",
+      "zones": {
+        "ZONE_OUTSIDE": [[0, 700], [1920, 700], [1920, 1080], [0, 1080]],
+        "ZONE_ENTRY_EXIT": [[420, 300], [1500, 300], [1700, 1080], [220, 1080]]
+      }
+    },
+    "ENTRY_2": {
+      "role": "entry",
+      "file": "data/raw/stores/store_2/entry 2.mp4",
+      "description": "Entry and exit camera angle 2",
+      "zones": {
+        "ZONE_OUTSIDE": [[0, 700], [1920, 700], [1920, 1080], [0, 1080]],
+        "ZONE_ENTRY_EXIT": [[400, 260], [1520, 260], [1760, 1080], [180, 1080]]
+      }
+    },
+    "ZONE": {
+      "role": "zone",
+      "file": "data/raw/stores/store_2/zone.mp4",
+      "description": "Main floor, wall units, makeup gondola, makeup unit",
+      "zones": {
+        "ZONE_LEFT_WALL": [[0, 80], [430, 80], [430, 900], [0, 900]],
+        "ZONE_RIGHT_WALL": [[1490, 80], [1920, 80], [1920, 900], [1490, 900]],
+        "ZONE_TOP_WALL": [[380, 0], [1540, 0], [1540, 300], [380, 300]],
+        "ZONE_MAKEUP_GONDOLA": [[520, 360], [1420, 360], [1420, 760], [520, 760]],
+        "ZONE_MAKEUP_UNIT": [[1180, 600], [1800, 600], [1800, 1080], [1180, 1080]],
+        "ZONE_FOH": [[0, 300], [1920, 300], [1920, 1080], [0, 1080]]
+      }
+    },
+    "BILLING": {
+      "role": "billing",
+      "file": "data/raw/stores/store_2/billing_area.mp4",
+      "description": "Billing queue and cash counter camera",
+      "zones": {
+        "ZONE_BILLING_QUEUE": [[420, 260], [1500, 260], [1500, 920], [420, 920]],
+        "ZONE_CASH_COUNTER": [[980, 80], [1900, 80], [1900, 620], [980, 620]],
+        "ZONE_BOH": [[0, 0], [620, 0], [620, 360], [0, 360]]
+      }
+    }
+  },
+  "entry_cameras": ["ENTRY_1", "ENTRY_2"],
+  "zone_cameras": ["ZONE"],
+  "billing_cameras": ["BILLING"],
+  "zones": {
+    "ZONE_ENTRY_EXIT": {
+      "type": "entry",
+      "description": "Entrance at bottom center of layout"
+    },
+    "ZONE_FOH": {
+      "type": "movement",
+      "description": "Central front-of-house movement area"
+    },
+    "ZONE_LEFT_WALL": {
+      "type": "product",
+      "description": "Left-side wall units"
+    },
+    "ZONE_RIGHT_WALL": {
+      "type": "product",
+      "description": "Right-side wall units"
+    },
+    "ZONE_TOP_WALL": {
+      "type": "product",
+      "description": "Top wall shelf region"
+    },
+    "ZONE_MAKEUP_GONDOLA": {
+      "type": "product",
+      "description": "Central makeup gondola fixtures"
+    },
+    "ZONE_MAKEUP_UNIT": {
+      "type": "product",
+      "description": "Right-side makeup units"
+    },
+    "ZONE_BILLING_QUEUE": {
+      "type": "billing",
+      "description": "Queue region in front of cash counter"
+    },
+    "ZONE_CASH_COUNTER": {
+      "type": "service",
+      "description": "Cash counter service region"
+    },
+    "ZONE_BOH": {
+      "type": "staff",
+      "description": "Back-of-house area"
+    }
+  },
+  "staff_rules": {
+    "boh_zones": ["ZONE_BOH"],
+    "service_zones": ["ZONE_CASH_COUNTER"],
+    "behind_counter_staff_seconds": 60,
+    "notes": [
+      "BOH movement is treated as staff-side movement.",
+      "People behind or near the cash counter for sustained duration are marked as likely staff."
+    ]
+  },
+  "edge_case_policy": {
+    "group_entry_window_seconds": 2,
+    "reentry_match_window_seconds": 600,
+    "low_confidence_threshold": 0.35,
+    "normal_confidence_threshold": 0.6,
+    "queue_depth_window_seconds": 3,
+    "overlap_suppression_window_seconds": 3
+  },
+  "business_rules": {
+    "entry_source_of_truth": ["ENTRY_2", "ENTRY_1"],
+    "zone_source_of_truth": ["ZONE"],
+    "billing_source_of_truth": ["BILLING"],
+    "pos_match_window_minutes": 5
+  }
+}

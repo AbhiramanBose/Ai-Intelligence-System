@@ -1,118 +1,156 @@
-# DESIGN.md
+# Design Document
 
-## 1. Problem Understanding
+## 1. Overview
 
-The objective is to build an end-to-end offline store intelligence system. The system starts from raw CCTV footage and POS data, then produces business-facing analytics such as visitor count, product-zone engagement, billing queue activity, heatmap, anomalies, and offline conversion rate.
+This project implements an AI-powered Store Intelligence System for the revised Purplle Tech Challenge dataset.
 
-The challenge is not only a computer-vision task. It is a full system design problem involving detection, tracking, event generation, API ingestion, storage, business logic, and clear engineering trade-offs.
+The system converts raw multi-camera CCTV footage into canonical behavioural events and exposes store-level business intelligence through production-style APIs.
 
-## 2. System Overview
-
-```text
-CCTV videos
-    ↓
-Computer vision pipeline
-    ↓
-Structured event stream
-    ↓
-FastAPI ingestion service
-    ↓
-SQLite database
-    ↓
-Analytics services
-    ↓
-Metrics, funnel, heatmap, anomalies, health endpoints
-```
-
-The system is designed to remain useful even when detection is not perfect. It records confidence values, uses idempotent event ingestion, and separates raw movement events from business metric computation.
-
-## 3. Dataset Context
-
-The project uses the Brigade Bangalore store dataset.
+The design goal is not only to detect people in video, but to convert imperfect CCTV observations into explainable retail metrics such as:
 
 ```text
-Store ID: ST1008
-Store Name: Brigade_Bangalore
-Date: 10 April 2026
+unique visitors
+product-zone engagement
+billing queue activity
+offline conversion rate
+abandonment rate
+dwell time
+zone heatmap
+operational anomalies
 ```
 
-The dataset includes:
+The implementation is intentionally configuration-driven so that the same pipeline can process multiple stores with different layouts, camera names, and camera roles.
+
+---
+
+## 2. High-level architecture
 
 ```text
-CAM_1.mp4
-CAM_2.mp4
-CAM_3.mp4
-CAM_4.mp4
-CAM_5.mp4
-Brigade_Bangalore_10_April_26.csv
-Store layout image and Excel
+Raw CCTV footage
+        ↓
+Store config JSON
+        ↓
+YOLOv8 person detection
+        ↓
+ByteTrack tracking
+        ↓
+Camera-role event generation
+        ↓
+Canonical event JSONL
+        ↓
+FastAPI ingestion API
+        ↓
+SQLite persistence
+        ↓
+Business metric services
+        ↓
+Metrics, funnel, heatmap, anomaly, conversion-debug APIs
 ```
 
-## 4. Camera Role Mapping
-
-### CAM_1
-
-CAM_1 is used for top-wall product-zone analytics.
-
-Visible zones include:
+The system separates responsibilities across five layers:
 
 ```text
-Top-wall skincare shelves
-Center product display
-Front-of-house movement area
+1. Configuration layer
+2. Computer-vision pipeline layer
+3. Event ingestion layer
+4. Business metric layer
+5. API and dashboard layer
 ```
 
-Generated events:
+---
+
+## 3. Configuration-driven store design
+
+The revised dataset contains more than one store and each store has its own camera naming, layout, and camera role mapping.
+
+Instead of hardcoding this in Python, store-specific details are externalized into:
 
 ```text
-ZONE_ENTER
-ZONE_EXIT
-ZONE_DWELL
+configs/stores/store_1.json
+configs/stores/store_2.json
 ```
 
-### CAM_2
-
-CAM_2 is used for bottom-wall makeup/product-zone analytics.
-
-Visible zones include:
+Each config defines:
 
 ```text
-Bottom-wall makeup shelves
-Center product display
-Front-of-house movement area
+store_id
+display_name
+layout_file
+camera_roles
+entry_cameras
+zone_cameras
+billing_cameras
+camera-specific zones
+staff rules
+edge-case policy
+business rules
 ```
 
-Generated events:
+This mirrors a production camera registry where each camera is mapped to a store, business role, and layout zone.
+
+### Store 1
 
 ```text
-ZONE_ENTER
-ZONE_EXIT
-ZONE_DWELL
+store_id: ST1008
+entry source: CAM_3
+zone cameras: CAM_1, CAM_2
+billing camera: CAM_5
+POS: available
 ```
 
-### CAM_3
+### Store 2
 
-CAM_3 is the primary entry/exit camera.
+```text
+store_id: ST1076
+entry source of truth: ENTRY_2
+secondary entry camera: ENTRY_1
+zone camera: ZONE
+billing camera: BILLING
+POS: not available in supplied POS CSV
+```
 
-Generated events:
+---
+
+## 4. Camera-role model
+
+Each camera is assigned one of these roles:
+
+```text
+entry
+zone
+billing
+staff
+```
+
+The role determines which event types the camera is allowed to emit.
+
+### Entry cameras
+
+Entry cameras emit:
 
 ```text
 ENTRY
 EXIT
-REENTRY, if re-identification is available
+REENTRY
 ```
 
-In the current implementation, ENTRY is detected when a person first appears in the entry zone or transitions from outside corridor to inside entry zone.
+They are the only cameras allowed to create new customer sessions.
 
-### CAM_4
+### Zone cameras
 
-CAM_4 shows a backroom or staff-side area. It is excluded from customer-facing metrics.
+Zone cameras emit:
 
-### CAM_5
+```text
+ZONE_ENTER
+ZONE_EXIT
+ZONE_DWELL
+```
 
-CAM_5 is used for billing and queue analytics.
+They are used for product engagement, dwell time, and heatmap signals.
 
-Generated events:
+### Billing cameras
+
+Billing cameras emit:
 
 ```text
 ZONE_ENTER
@@ -121,49 +159,19 @@ ZONE_DWELL
 BILLING_QUEUE_JOIN
 ```
 
-## 5. Store Zone Model
+They are used for queue depth, billing participation, and POS correlation.
 
-The system uses broad analytics zones for reliable scoring.
+### Staff cameras or staff zones
 
-```text
-ZONE_ENTRY_EXIT
-ZONE_FOH
-ZONE_TOP_WALL_SKINCARE
-ZONE_BOTTOM_WALL_MAKEUP
-ZONE_CENTER_MAKEUP_UNIT
-ZONE_BILLING
-ZONE_BILLING_QUEUE
-ZONE_PMU
-ZONE_BACKROOM
-```
+Staff cameras and BOH/service zones mark detections as staff-side movement. Staff detections are excluded from customer metrics.
 
-Broad zones were chosen because the CCTV angles support reliable area-level detection. Brand-level zones are possible, but they are more likely to introduce noisy results because a customer standing near a shelf cannot always be mapped confidently to a single brand.
+---
 
-## 6. Detection and Tracking Pipeline
+## 5. Canonical event schema
 
-The detection pipeline is implemented in:
+The pipeline writes canonical behavioural events as JSONL.
 
-```text
-pipeline/run_pipeline.py
-```
-
-Pipeline steps:
-
-```text
-1. Load CCTV video.
-2. Run YOLOv8 person detection.
-3. Use ByteTrack tracking through Ultralytics.
-4. Compute bottom-center point of each person bounding box.
-5. Map the point into camera-specific polygons.
-6. Emit structured events.
-7. Write events to data/processed/generated_events.jsonl.
-```
-
-The bottom-center point is used because it approximates where the person is standing on the floor.
-
-## 7. Event Schema
-
-Each event has:
+Each event contains:
 
 ```text
 event_id
@@ -179,290 +187,430 @@ confidence
 metadata
 ```
 
-The event schema supports:
-
-```text
-Idempotency through event_id
-Store-level analytics through store_id
-Camera attribution through camera_id
-Session-style grouping through visitor_id
-Zone analytics through zone_id and dwell_ms
-Staff exclusion through is_staff
-Confidence-aware debugging through confidence
-Flexible additional data through metadata
-```
-
-## 8. Event Ingestion
-
-The ingestion endpoint is:
-
-```text
-POST /events/ingest
-```
-
-It supports:
-
-```text
-Batch ingestion
-Event validation
-Duplicate detection by event_id
-Partial success
-Structured error reporting
-```
-
-Duplicate events are not inserted again. This allows event replay to be safely rerun without inflating metrics.
-
-## 9. Storage
-
-SQLite is used for the starter implementation.
-
-Core tables:
-
-```text
-events
-pos_transactions
-store_zones
-anomalies
-```
-
-SQLite is sufficient for this challenge because the dataset is small, setup is simple, and the evaluator can run the project without configuring a separate database server.
-
-## 10. Session and Funnel Logic
-
-The funnel has four stages:
-
-```text
-ENTRY
-PRODUCT_ZONE_VISIT
-BILLING_QUEUE
-PURCHASE
-```
-
-The system treats CAM_3 as the strongest source for entry count. Since current visitor IDs are camera-local, product and billing stages are capped by entry count to keep the funnel logically valid and monotonically decreasing.
+The design keeps the internal schema stable even if input video files, camera names, or POS formats change.
 
 Example:
 
-```text
-ENTRY >= PRODUCT_ZONE_VISIT >= BILLING_QUEUE >= PURCHASE
+```json
+{
+  "event_id": "uuid",
+  "store_id": "ST1008",
+  "camera_id": "CAM_5",
+  "visitor_id": "VIS_CAM_5_12",
+  "event_type": "BILLING_QUEUE_JOIN",
+  "timestamp": "2026-04-10T14:40:10Z",
+  "zone_id": "ZONE_BILLING_QUEUE",
+  "dwell_ms": 0,
+  "is_staff": false,
+  "confidence": 0.81,
+  "metadata": {
+    "track_id": 12,
+    "queue_depth": 2,
+    "queue_depth_method": "rolling_3s_median",
+    "camera_role": "billing"
+  }
+}
 ```
 
-This avoids impossible outputs such as product visitors being greater than entry visitors.
+---
 
-## 11. POS Normalization
+## 6. Detection and tracking design
 
-The POS CSV is item-level. The normalizer groups rows into transaction-level records.
-
-Input:
+The computer-vision pipeline uses:
 
 ```text
-Brigade_Bangalore_10_April_26.csv
+YOLOv8 for person detection
+ByteTrack for frame-to-frame person tracking
+bottom-center point for zone assignment
+polygon-based zone mapping
 ```
 
-Output:
+The pipeline samples every N frames to keep processing practical while still producing useful behavioural events.
+
+A person is mapped to a zone using the bottom-center point of the bounding box. This is more stable for retail CCTV than using the box center because the feet position better approximates where the person is standing.
+
+---
+
+## 7. Zone mapping
+
+Each camera has its own zone polygons because the same physical store region appears differently depending on camera angle.
+
+For example:
 
 ```text
-data/processed/normalized_pos_transactions.csv
+Store 1 CAM_1:
+  ZONE_TOP_WALL
+  ZONE_CENTER_MAKEUP_UNIT
+  ZONE_FOH
+
+Store 1 CAM_5:
+  ZONE_BILLING_QUEUE
+  ZONE_CASH_COUNTER
+  ZONE_ACCESSORIES
+
+Store 2 BILLING:
+  ZONE_BILLING_QUEUE
+  ZONE_CASH_COUNTER
+  ZONE_BOH
 ```
 
-Each normalized transaction contains:
+The system uses broad business zones rather than brand-level micro-zones. This improves robustness under occlusion, low camera angle, and short clips.
+
+---
+
+## 8. Edge-case handling
+
+The revised challenge expects realistic handling of imperfect footage. The implementation handles the main known challenges as follows.
+
+### 8.1 Group entry
+
+Multiple tracked people entering within a short time window are counted as individual visitors.
+
+The pipeline annotates nearby entry events with:
 
 ```text
+group_entry
+group_size
+group_id
+```
+
+This prevents the system from collapsing a group into one visitor.
+
+### 8.2 Staff movement
+
+Staff handling is rule-based.
+
+A detection can be marked as staff if:
+
+```text
+the camera is marked as staff-side
+the person is in a BOH zone
+the person is in a service/cash-counter zone
+```
+
+Staff detections are excluded from visitor and conversion metrics.
+
+This is explainable and practical for a challenge dataset, while a production version could add uniform detection or staff Re-ID.
+
+### 8.3 Re-entry
+
+The system supports `REENTRY` events and re-entry-aware funnel logic.
+
+Re-entry is not counted as a fresh visitor session in funnel metrics, which avoids inflating footfall when a customer briefly leaves and returns.
+
+### 8.4 Partial occlusion
+
+Low-confidence detections are retained with metadata instead of being silently dropped.
+
+Each event includes:
+
+```text
+low_confidence
+confidence_band
+```
+
+This makes downstream APIs aware of uncertainty.
+
+### 8.5 Billing queue buildup
+
+Billing queue depth is smoothed using a rolling median window.
+
+```text
+queue_depth = median(non-staff detections in billing queue ROI over recent frames)
+```
+
+This avoids unstable queue depth caused by one noisy frame.
+
+### 8.6 Empty store periods
+
+The APIs return stable zero-state responses when no customer events are available.
+
+This is covered by tests.
+
+### 8.7 Camera overlap
+
+Store 2 has two entry cameras. Without handling, both entry cameras can create duplicate session events for the same real visitor.
+
+The config defines:
+
+```text
+entry_source_of_truth: ENTRY_2, ENTRY_1
+```
+
+The first camera is treated as the session-counting source of truth. Session events from secondary entry cameras are suppressed when the primary camera has valid session events.
+
+Observed Store 2 result:
+
+```text
+raw entry-camera events before suppression: 163 total events
+events after suppression: 138 total events
+suppressed_entry_overlap_count: 25
+```
+
+This reduces visitor denominator inflation.
+
+---
+
+## 9. POS correlation design
+
+The POS dataset does not contain CCTV visitor identity.
+
+Therefore, conversion is estimated through a store-level time-window correlation:
+
+```text
+visitor in billing zone
+same store_id
+POS transaction within configured match window
+```
+
+The system does not infer purchases only from CCTV. Conversion requires POS evidence.
+
+This keeps the north-star metric honest.
+
+---
+
+## 10. POS normalization
+
+The revised POS CSV is item-level. It contains 101 raw rows, but those rows represent product-line items rather than 101 separate transactions.
+
+The POS seeding script groups rows by:
+
+```text
+store_id + order_date + order_time
+```
+
+This normalizes the file into:
+
+```text
+24 transaction-level POS records
+```
+
+Each normalized POS record includes:
+
+```text
+store_id
 transaction_id
 invoice_number
-store_id
 store_name
-timestamp_utc
+timestamp
 basket_value_inr
 item_count
 unique_items
 ```
 
-## 12. POS-Based Conversion
+This prevents conversion from being inflated by product-line rows.
 
-Conversion is calculated using a strict correlation rule:
+---
+
+## 11. Business metrics
+
+### 11.1 Unique visitors
+
+Unique visitors are derived from session-counting entry events.
+
+For Store 2, only the configured primary entry camera contributes to the final visitor denominator.
+
+### 11.2 Product-zone visit
+
+A visitor is counted as product-zone engaged when they produce non-staff zone activity.
+
+### 11.3 Billing queue
+
+Billing participation is derived from `BILLING_QUEUE_JOIN` and billing-zone events.
+
+### 11.4 Offline conversion rate
 
 ```text
-A visitor is counted as converted only if a billing queue event exists within five minutes before a POS transaction timestamp.
+conversion_rate = POS-confirmed converted visitors / unique customer sessions
 ```
 
-This logic is implemented in:
+### 11.5 Abandonment rate
+
+For stores with POS data, a billing visitor who cannot be matched to a POS transaction is treated as abandoned.
+
+For stores without POS data, the system avoids inferring abandonment from missing POS and reports this transparently.
+
+---
+
+## 12. API design
+
+The API exposes store-specific endpoints:
 
 ```text
-app/services/pos_correlation_service.py
+POST /events/ingest
+GET /health
+GET /stores/{store_id}/metrics
+GET /stores/{store_id}/funnel
+GET /stores/{store_id}/heatmap
+GET /stores/{store_id}/anomalies
+GET /stores/{store_id}/conversion-debug
 ```
 
-The service returns:
+The `/conversion-debug` endpoint is intentionally included to make metric reasoning auditable.
+
+It reports:
 
 ```text
 entry_count
 product_count
 billing_count
 converted_count
+abandoned_count
 transaction_count
 matched_transaction_count
 unmatched_transaction_count
 conversion_source
+abandonment_source
 ```
 
-For the provided demo run, CCTV billing events occur around 14:39 to 14:40 UTC. The nearest POS transactions are approximately 15 minutes away. Therefore, no transaction satisfies the five-minute rule, and the system reports:
+---
+
+## 13. Health and anomaly design
+
+The health endpoint checks:
 
 ```text
-conversion_rate = 0.0
-PURCHASE count = 0
+database connectivity
+latest event timestamp per store
+stale-feed warnings
 ```
 
-This is intentional. It avoids falsely inflating conversion from billing presence alone.
-
-## 13. Metrics Endpoint
-
-Endpoint:
+For the challenge dataset, `/health` may return:
 
 ```text
-GET /stores/{store_id}/metrics
+status: degraded
+warning: STALE_FEED
 ```
 
-Returns:
+This is expected for offline replay because event timestamps are historical.
+
+Anomaly service is designed to support:
 
 ```text
-unique_visitors
-conversion_rate
-average dwell per zone
-current queue depth
-abandonment_rate
+stale feed
+queue spike
+dead zone
+conversion baseline unavailable
 ```
 
-Conversion rate is calculated as:
+Conversion-drop detection requires historical baselines. Since the supplied dataset is single-day, the system does not fake a seven-day baseline.
+
+---
+
+## 14. Storage design
+
+The system uses SQLite for local challenge execution.
+
+Tables include:
 
 ```text
-converted_count / unique_visitors
+events
+pos_transactions
 ```
 
-The value is capped at 1.0 as a safety guard.
+SQLite is sufficient for local evaluation and Dockerized demo execution. In production, this would be replaced by PostgreSQL or a streaming warehouse-backed store.
 
-## 14. Heatmap Endpoint
+---
 
-Endpoint:
-
-```text
-GET /stores/{store_id}/heatmap
-```
-
-The heatmap service returns:
-
-```text
-zone_id
-visit_count
-avg_dwell_ms
-heat_score
-data_confidence
-```
-
-Heat score is normalized from zone visit counts. High-traffic zones receive higher heat scores.
-
-## 15. Anomaly Endpoint
-
-Endpoint:
-
-```text
-GET /stores/{store_id}/anomalies
-```
-
-Current anomaly types include:
-
-```text
-STALE_FEED
-BILLING_QUEUE_SPIKE
-```
-
-A stale-feed warning is emitted when no recent event has been received within the configured freshness window.
-
-## 16. Health Endpoint
-
-Endpoint:
-
-```text
-GET /health
-```
-
-Returns:
-
-```text
-API status
-database status
-last event timestamp by store
-warnings
-```
-
-If the latest event is older than the freshness threshold, the status becomes degraded and a STALE_FEED warning is returned.
-
-## 17. Testing Strategy
+## 15. Testing strategy
 
 The test suite covers:
 
 ```text
-Event schema validation
-Event ingestion
-Idempotency
-Health endpoint
-Metrics endpoint
-Funnel endpoint
-Zone mapping
-POS correlation inside five-minute window
-POS non-correlation outside five-minute window
+event schema validation
+ingestion idempotency
+malformed event handling
+metrics
+funnel
+POS correlation
+conversion debug
+abandonment post-processing
+empty-store behaviour
+re-entry funnel behaviour
+staff exclusion
+zone mapping
+health response
 ```
 
-Current status:
+Current validation:
 
 ```text
-13 tests passed
-Coverage above 80%
+24 tests passed
+86% coverage for app + pipeline
 ```
 
-The CCTV pipeline is treated as an integration/demo pipeline because it runs YOLO and processes videos. It is validated through the generated JSONL event file and API replay flow rather than normal unit tests.
+---
 
-## 18. Known Limitations
+## 16. Production-readiness choices
 
-1. Cross-camera person re-identification is approximate.
-2. Visitor IDs are currently camera-local.
-3. The funnel is made session-like by capping later stages using entry count.
-4. The CCTV clip is short and does not cover the full business day.
-5. The provided POS timestamps do not fall within the five-minute billing window for the demo CCTV clip.
-6. Brand-level zone attribution is not used in v1 because broad zones are more reliable for the visible camera angles.
-
-## 19. AI-Assisted Decisions
-
-AI assistance was used for:
+The system includes:
 
 ```text
-Project structure planning
-Event schema design
-Evaluation-framework interpretation
-Test-case planning
-POS correlation logic
-Documentation drafting
-Debugging installation and pytest issues
+structured event schema
+idempotent event ingestion
+request tracing middleware
+health endpoint
+conversion-debug endpoint
+Docker support
+test coverage
+configuration-driven store setup
+raw/generated data ignored by Git
 ```
 
-All AI-generated code and tests were reviewed manually, adjusted for the actual dataset, and validated through terminal execution.
+The implementation avoids overclaiming perfect computer vision and instead exposes uncertainty using confidence metadata.
 
-## Staff and Re-entry Handling Limitations
+---
 
-The challenge footage includes staff movement, re-entry, group entry, and occlusion. In this version, the system handles these cases with practical approximations rather than claiming perfect visual understanding.
+## 17. Final validation snapshot
 
-### Staff Handling
+### Store 1: ST1008
 
-The event schema includes `is_staff`, and all customer-facing metrics filter out events where `is_staff=true`. CAM_4 is treated as a backroom or staff-side camera and is excluded from customer metrics. This prevents obvious staff-side movement from contaminating customer analytics.
+```text
+generated events: 371
+accepted events: 371
+invalid events: 0
+POS transactions loaded: 24
+unique visitors: 4
+conversion rate: 0.0
+abandonment rate: 1.0
+```
 
-A production version should improve this with a dedicated staff classifier, for example uniform-color detection, staff badge detection, or a lightweight vision classifier trained on store-specific staff appearances. I did not overclaim this in v1 because the provided footage and timeframe did not support a reliable uniform classifier without additional labelled examples.
+### Store 2: ST1076
 
-### Re-entry Handling
+```text
+generated events after overlap suppression: 138
+accepted events: 138
+invalid events: 0
+suppressed entry-overlap events: 25
+unique visitors: 31
+conversion rate: 0.0
+abandonment rate: 0.0
+```
 
-The event catalogue supports `REENTRY`. In this version, CAM_3 is used as the strongest source for entry events, and the funnel logic is capped to prevent cross-camera double counting. However, full cross-camera re-identification is not implemented. The same physical customer may still receive camera-local visitor IDs across different cameras.
+---
 
-A production version should use person re-identification embeddings or trajectory-aware matching across overlapping cameras. This would allow the system to distinguish a true re-entry from a new customer entering from the same direction.
+## 18. Limitations
 
-### Group Entry and Occlusion
+1. Full cross-camera person Re-ID is not implemented.
+2. Staff detection is rule-based and does not use a trained uniform classifier.
+3. Zone mapping is broad and business-oriented, not brand-level.
+4. POS correlation is probabilistic because POS has no customer identity.
+5. Conversion-drop anomaly detection requires historical baselines.
+6. Offline CCTV replay naturally produces stale-feed health warnings.
+7. Camera polygons are manually configured and would need calibration tooling in production.
 
-Group entry is handled through YOLO person detections and ByteTrack track IDs, so multiple people entering together can generate separate tracks. Partial occlusion is handled by retaining confidence scores rather than hiding uncertain detections. Low-confidence events remain visible for review instead of being silently discarded.
+---
 
-These limitations are intentional engineering trade-offs. The current implementation prioritizes a working, explainable end-to-end system over unsupported claims of perfect staff classification or cross-camera re-identification.
+## 19. Future improvements
+
+```text
+camera calibration UI for polygon editing
+cross-camera Re-ID model
+staff uniform classifier
+historical baseline store for anomaly detection
+Kafka-based event streaming
+PostgreSQL instead of SQLite
+dashboard with live charts
+confidence-weighted metric reporting
+automatic store registry validation
+```

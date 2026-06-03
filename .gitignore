@@ -49,3 +49,7 @@ data/processed/normalized_pos_transactions.csv
 
 # POS-enriched generated event output
 data/processed/generated_events_with_pos.jsonl
+
+# Raw and generated challenge data
+data/raw/
+data/processed/

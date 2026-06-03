@@ -1,0 +1,106 @@
+{
+  "store_id": "ST1008",
+  "display_name": "Store 1",
+  "layout_file": "data/raw/stores/store_1/layout.png",
+  "camera_roles": {
+    "CAM_1": {
+      "role": "zone",
+      "file": "data/raw/stores/store_1/CAM 1 - zone.mp4",
+      "description": "Main floor and product-zone coverage",
+      "zones": {
+        "ZONE_TOP_WALL": [[220, 80], [1840, 80], [1840, 420], [220, 420]],
+        "ZONE_CENTER_MAKEUP_UNIT": [[520, 420], [1500, 420], [1500, 850], [520, 850]],
+        "ZONE_FOH": [[0, 420], [1920, 420], [1920, 1080], [0, 1080]]
+      }
+    },
+    "CAM_2": {
+      "role": "zone",
+      "file": "data/raw/stores/store_1/CAM 2 - zone.mp4",
+      "description": "Second main floor and product-zone coverage",
+      "zones": {
+        "ZONE_BOTTOM_WALL": [[160, 80], [1860, 80], [1860, 430], [160, 430]],
+        "ZONE_CENTER_MAKEUP_UNIT": [[450, 430], [1520, 430], [1520, 860], [450, 860]],
+        "ZONE_FOH": [[0, 430], [1920, 430], [1920, 1080], [0, 1080]]
+      }
+    },
+    "CAM_3": {
+      "role": "entry",
+      "file": "data/raw/stores/store_1/CAM 3 - entry.mp4",
+      "description": "Entry and exit threshold camera",
+      "zones": {
+        "ZONE_OUTSIDE_CORRIDOR": [[1050, 220], [1920, 180], [1920, 1080], [950, 1080], [900, 700]],
+        "ZONE_ENTRY_EXIT": [[120, 0], [1180, 0], [1130, 430], [930, 720], [260, 1080], [120, 1080]]
+      }
+    },
+    "CAM_5": {
+      "role": "billing",
+      "file": "data/raw/stores/store_1/CAM 5 - billing.mp4",
+      "description": "Billing queue and cash counter camera",
+      "zones": {
+        "ZONE_BILLING_QUEUE": [[420, 280], [1500, 280], [1500, 920], [420, 920]],
+        "ZONE_CASH_COUNTER": [[1050, 120], [1900, 120], [1900, 700], [1050, 700]],
+        "ZONE_ACCESSORIES": [[0, 200], [520, 200], [520, 900], [0, 900]]
+      }
+    }
+  },
+  "entry_cameras": ["CAM_3"],
+  "zone_cameras": ["CAM_1", "CAM_2"],
+  "billing_cameras": ["CAM_5"],
+  "zones": {
+    "ZONE_ENTRY_EXIT": {
+      "type": "entry",
+      "description": "Entry and exit threshold near existing glass"
+    },
+    "ZONE_FOH": {
+      "type": "movement",
+      "description": "Central front-of-house movement area"
+    },
+    "ZONE_TOP_WALL": {
+      "type": "product",
+      "description": "Top wall product shelves"
+    },
+    "ZONE_BOTTOM_WALL": {
+      "type": "product",
+      "description": "Bottom wall product shelves"
+    },
+    "ZONE_CENTER_MAKEUP_UNIT": {
+      "type": "product",
+      "description": "Central makeup unit"
+    },
+    "ZONE_BILLING_QUEUE": {
+      "type": "billing",
+      "description": "Customer queue area before billing"
+    },
+    "ZONE_CASH_COUNTER": {
+      "type": "service",
+      "description": "Cash counter service region"
+    },
+    "ZONE_ACCESSORIES": {
+      "type": "product",
+      "description": "Accessories / PMU side area"
+    }
+  },
+  "staff_rules": {
+    "boh_zones": [],
+    "service_zones": ["ZONE_CASH_COUNTER"],
+    "behind_counter_staff_seconds": 60,
+    "notes": [
+      "Staff is classified by service-zone behavior, not by a fixed camera-only rule.",
+      "People behind or near the cash counter for sustained duration are marked as likely staff."
+    ]
+  },
+  "edge_case_policy": {
+    "group_entry_window_seconds": 2,
+    "reentry_match_window_seconds": 600,
+    "low_confidence_threshold": 0.35,
+    "normal_confidence_threshold": 0.6,
+    "queue_depth_window_seconds": 3,
+    "overlap_suppression_window_seconds": 3
+  },
+  "business_rules": {
+    "entry_source_of_truth": ["CAM_3"],
+    "zone_source_of_truth": ["CAM_1", "CAM_2"],
+    "billing_source_of_truth": ["CAM_5"],
+    "pos_match_window_minutes": 5
+  }
+}
