@@ -1,178 +1,308 @@
-#!/usr/bin/env python3
-
+import csv
 import sys
+from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT_DIR))
-from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-import pandas as pd
-from sqlalchemy.orm import Session
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.database import SessionLocal, init_db
 from app.models.pos_transaction import PosTransaction
 
 
-def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df.columns = [column.strip().lower().replace(" ", "_") for column in df.columns]
-    return df
+DEFAULT_INPUT_PATHS = [
+    Path("data/raw/pos/pos_transactions.csv"),
+    Path("data/raw/pos/POS - sample transactionsb1e826f.csv"),
+    Path("data/raw/pos/sample_transactions.csv"),
+]
+
+DEFAULT_OUTPUT_PATH = Path("data/processed/normalized_pos_transactions.csv")
 
 
-def first_existing(columns: list[str], candidates: list[str]) -> str | None:
-    for candidate in candidates:
-        if candidate in columns:
-            return candidate
-    return None
+def parse_datetime(value: str) -> datetime:
+    normalized = value.strip().replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    return parsed.astimezone(timezone.utc)
 
 
-def normalize_pos(input_path: Path, output_path: Path) -> pd.DataFrame:
-    df = pd.read_csv(input_path)
-    df = normalize_columns(df)
+def parse_date_time(order_date: str, order_time: str) -> datetime:
+    date_value = order_date.strip()
+    time_value = order_time.strip()
 
-    columns = list(df.columns)
+    formats = [
+        "%d-%m-%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y/%m/%d %H:%M:%S",
+    ]
 
-    order_col = first_existing(columns, ["order_id", "invoice_number", "transaction_id", "bill_no"])
-    invoice_col = first_existing(columns, ["invoice_number", "bill_no", "order_id"])
-    date_col = first_existing(columns, ["order_date", "date", "bill_date"])
-    time_col = first_existing(columns, ["order_time", "time", "bill_time"])
-    amount_col = first_existing(columns, ["total_amount", "amount", "net_amount", "basket_value_inr", "nmv"])
-    qty_col = first_existing(columns, ["qty", "quantity", "item_count"])
-    store_col = first_existing(columns, ["store_id", "store_code"])
-    store_name_col = first_existing(columns, ["store_name", "outlet_name"])
-    item_col = first_existing(columns, ["product_id", "sku", "ean", "product_name"])
+    combined = f"{date_value} {time_value}"
 
-    if not order_col:
-        raise ValueError(f"Could not infer transaction/order column. Found columns: {columns}")
-
-    if not amount_col:
-        raise ValueError(f"Could not infer amount column. Found columns: {columns}")
-
-    df[amount_col] = pd.to_numeric(df[amount_col], errors="coerce").fillna(0.0)
-
-    if qty_col:
-        df[qty_col] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1).astype(int)
-    else:
-        df["_qty"] = 1
-        qty_col = "_qty"
-
-    if date_col and time_col:
-        timestamp_series = pd.to_datetime(
-            df[date_col].astype(str) + " " + df[time_col].astype(str),
-            errors="coerce",
-            dayfirst=True,
-        )
-    elif date_col:
-        timestamp_series = pd.to_datetime(df[date_col], errors="coerce", dayfirst=True)
-    else:
-        timestamp_series = pd.Timestamp("2026-04-10 20:10:00")
-
-    df["_timestamp_ist"] = timestamp_series
-    df = df.dropna(subset=["_timestamp_ist"])
-
-    df["_timestamp_utc"] = (
-        df["_timestamp_ist"]
-        .dt.tz_localize("Asia/Kolkata", ambiguous="NaT", nonexistent="shift_forward")
-        .dt.tz_convert("UTC")
-    )
-
-    grouped = (
-        df.groupby(order_col)
-        .agg(
-            timestamp_utc=("_timestamp_utc", "min"),
-            basket_value_inr=(amount_col, "sum"),
-            item_count=(qty_col, "sum"),
-        )
-        .reset_index()
-        .rename(columns={order_col: "transaction_id"})
-    )
-
-    if invoice_col:
-        invoice_map = df.groupby(order_col)[invoice_col].first().to_dict()
-        grouped["invoice_number"] = grouped["transaction_id"].map(invoice_map).fillna(grouped["transaction_id"])
-    else:
-        grouped["invoice_number"] = grouped["transaction_id"]
-
-    grouped["store_id"] = df[store_col].iloc[0] if store_col else "ST1008"
-    grouped["store_name"] = df[store_name_col].iloc[0] if store_name_col else "Brigade_Bangalore"
-
-    if item_col:
-        unique_items = df.groupby(order_col)[item_col].nunique().to_dict()
-        grouped["unique_items"] = grouped["transaction_id"].map(unique_items).fillna(1).astype(int)
-    else:
-        grouped["unique_items"] = df.groupby(order_col).size().values
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    grouped.to_csv(output_path, index=False)
-
-    return grouped
-
-
-def seed_transactions(normalized: pd.DataFrame, db: Session) -> tuple[int, int]:
-    inserted = 0
-    skipped = 0
-
-    for _, row in normalized.iterrows():
-        transaction_id = str(row["transaction_id"])
-
-        existing = (
-            db.query(PosTransaction)
-            .filter(PosTransaction.transaction_id == transaction_id)
-            .first()
-        )
-
-        if existing:
-            skipped += 1
+    for fmt in formats:
+        try:
+            parsed = datetime.strptime(combined, fmt)
+            return parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
             continue
 
-        timestamp_value = row["timestamp_utc"]
-        if hasattr(timestamp_value, "to_pydatetime"):
-            timestamp_value = timestamp_value.to_pydatetime()
+    raise ValueError(f"Could not parse POS timestamp from date/time: {combined}")
 
-        db.add(
-            PosTransaction(
-                transaction_id=transaction_id,
-                invoice_number=str(row.get("invoice_number", transaction_id)),
-                store_id=str(row.get("store_id", "ST1008")),
-                store_name=str(row.get("store_name", "Brigade_Bangalore")),
-                timestamp=timestamp_value,
-                basket_value_inr=float(row["basket_value_inr"]),
-                item_count=int(row["item_count"]),
-                unique_items=int(row["unique_items"]),
-            )
+
+def find_input_path() -> Path:
+    for path in DEFAULT_INPUT_PATHS:
+        if path.exists():
+            return path
+
+    raise FileNotFoundError(
+        "No POS CSV found. Place the revised POS CSV under data/raw/pos/ "
+        "as pos_transactions.csv or update DEFAULT_INPUT_PATHS."
+    )
+
+
+def read_csv_rows(path: Path) -> list[dict[str, str]]:
+    with path.open("r", encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file)
+        return [dict(row) for row in reader]
+
+
+def normalize_revised_item_level_rows(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """
+    Revised POS format is item-level.
+
+    Expected columns:
+    order_id, order_date, order_time, store_id, product_id, brand_name, total_amount
+
+    In the provided CSV, order_id is item-row level, not transaction-level.
+    Therefore, transaction identity is derived from store_id + order_date + order_time.
+    """
+    grouped: dict[tuple[str, str, str], list[dict[str, str]]] = defaultdict(list)
+
+    for row in rows:
+        store_id = row.get("store_id", "").strip()
+        order_date = row.get("order_date", "").strip()
+        order_time = row.get("order_time", "").strip()
+
+        if not store_id or not order_date or not order_time:
+            continue
+
+        grouped[(store_id, order_date, order_time)].append(row)
+
+    normalized: list[dict[str, Any]] = []
+
+    for (store_id, order_date, order_time), transaction_rows in grouped.items():
+        timestamp = parse_date_time(order_date, order_time)
+
+        transaction_id = (
+            f"{store_id}_{timestamp.strftime('%Y%m%dT%H%M%S')}"
         )
 
-        inserted += 1
+        basket_value = 0.0
+        product_ids: set[str] = set()
 
-    db.commit()
-    return inserted, skipped
+        for row in transaction_rows:
+            product_id = str(row.get("product_id", "")).strip()
+
+            if product_id:
+                product_ids.add(product_id)
+
+            raw_amount = (
+                row.get("total_amount")
+                or row.get("basket_value_inr")
+                or row.get("amount")
+                or "0"
+            )
+
+            try:
+                basket_value += float(str(raw_amount).replace(",", "").strip())
+            except ValueError:
+                continue
+
+        normalized.append(
+            {
+                "store_id": store_id,
+                "transaction_id": transaction_id,
+                "invoice_number": transaction_id,
+                "store_name": store_id,
+                "timestamp_utc": timestamp,
+                "basket_value_inr": round(basket_value, 2),
+                "item_count": len(transaction_rows),
+                "unique_items": len(product_ids),
+            }
+        )
+
+    normalized.sort(
+        key=lambda item: (
+            item["store_id"],
+            item["timestamp_utc"],
+            item["transaction_id"],
+        )
+    )
+
+    return normalized
 
 
-def main() -> None:
-    input_path = Path("data/raw/pos/Brigade_Bangalore_10_April_26.csv")
-    output_path = Path("data/processed/normalized_pos_transactions.csv")
+def normalize_transaction_level_rows(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """
+    Supports older transaction-level CSVs.
 
-    if not input_path.exists():
-        print(f"POS file not found at: {input_path}")
-        print("Copy your CSV to this path and rerun this script.")
-        return
+    Expected columns may include:
+    store_id, transaction_id, timestamp, basket_value_inr
+    """
+    normalized: list[dict[str, Any]] = []
 
+    for row in rows:
+        store_id = row.get("store_id", "").strip()
+        transaction_id = (
+            row.get("transaction_id")
+            or row.get("order_id")
+            or ""
+        ).strip()
+
+        timestamp_value = (
+            row.get("timestamp")
+            or row.get("timestamp_utc")
+            or row.get("transaction_timestamp")
+            or ""
+        ).strip()
+
+        if not store_id or not transaction_id or not timestamp_value:
+            continue
+
+        basket_value_raw = (
+            row.get("basket_value_inr")
+            or row.get("total_amount")
+            or row.get("amount")
+            or "0"
+        )
+
+        normalized.append(
+            {
+                "store_id": store_id,
+                "transaction_id": transaction_id,
+                "timestamp_utc": parse_datetime(timestamp_value),
+                "basket_value_inr": round(float(str(basket_value_raw).replace(",", "").strip()), 2),
+            }
+        )
+
+    normalized.sort(key=lambda item: (item["store_id"], item["timestamp_utc"], item["transaction_id"]))
+
+    return normalized
+
+
+def normalize_pos_rows(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+
+    columns = set(rows[0].keys())
+
+    revised_columns = {"order_date", "order_time", "store_id", "total_amount"}
+
+    if revised_columns.issubset(columns):
+        return normalize_revised_item_level_rows(rows)
+
+    return normalize_transaction_level_rows(rows)
+
+
+def write_normalized_csv(rows: list[dict[str, Any]], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "store_id",
+                "transaction_id",
+                "invoice_number",
+                "store_name",
+                "timestamp_utc",
+                "basket_value_inr",
+                "item_count",
+                "unique_items",
+            ],
+        )
+        writer.writeheader()
+
+        for row in rows:
+            writer.writerow(
+                {
+                    "store_id": row["store_id"],
+                    "transaction_id": row["transaction_id"],
+                    "invoice_number": row.get("invoice_number"),
+                    "store_name": row.get("store_name"),
+                    "timestamp_utc": row["timestamp_utc"].isoformat().replace("+00:00", "Z"),
+                    "basket_value_inr": row["basket_value_inr"],
+                    "item_count": row.get("item_count", 0),
+                    "unique_items": row.get("unique_items", 0),
+                }
+            )
+
+
+def insert_transactions(rows: list[dict[str, Any]]) -> tuple[int, int]:
     init_db()
 
-    normalized = normalize_pos(input_path, output_path)
-
     db = SessionLocal()
+    inserted = 0
+    skipped_duplicates = 0
 
     try:
-        inserted, skipped = seed_transactions(normalized, db)
+        for row in rows:
+            existing = (
+                db.query(PosTransaction)
+                .filter(
+                    PosTransaction.store_id == row["store_id"],
+                    PosTransaction.transaction_id == row["transaction_id"],
+                )
+                .first()
+            )
+
+            if existing:
+                skipped_duplicates += 1
+                continue
+
+            transaction = PosTransaction(
+                store_id=row["store_id"],
+                transaction_id=row["transaction_id"],
+                invoice_number=row.get("invoice_number"),
+                store_name=row.get("store_name"),
+                timestamp=row["timestamp_utc"],
+                basket_value_inr=row["basket_value_inr"],
+                item_count=row.get("item_count", 0),
+                unique_items=row.get("unique_items", 0),
+            )
+
+            db.add(transaction)
+            inserted += 1
+
+        db.commit()
     finally:
         db.close()
 
-    print(f"Normalized POS transactions: {len(normalized)}")
+    return inserted, skipped_duplicates
+
+
+def main() -> None:
+    input_path = find_input_path()
+    rows = read_csv_rows(input_path)
+    normalized_rows = normalize_pos_rows(rows)
+
+    write_normalized_csv(normalized_rows, DEFAULT_OUTPUT_PATH)
+
+    inserted, skipped_duplicates = insert_transactions(normalized_rows)
+
+    print(f"Input POS file: {input_path}")
+    print(f"Raw POS rows: {len(rows)}")
+    print(f"Normalized POS transactions: {len(normalized_rows)}")
     print(f"Inserted: {inserted}")
-    print(f"Skipped duplicates: {skipped}")
-    print(f"Output: {output_path}")
+    print(f"Skipped duplicates: {skipped_duplicates}")
+    print(f"Output: {DEFAULT_OUTPUT_PATH}")
 
 
 if __name__ == "__main__":
